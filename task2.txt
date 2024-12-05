@@ -1,0 +1,81 @@
+#include <LiquidCrystal.h>
+#include <Encoder.h>
+
+// LCD pin connections
+LiquidCrystal lcd(13, 12, 11, 10, 9, 8);
+
+// Motor control pins
+const int motorPin1 = 5;  // H-bridge input 4
+const int motorPin2 = 6;  // H-bridge input 3
+
+// Potentiometer pin
+const int potPin = A0;  // Single potentiometer for speed and direction
+
+// Encoder pins
+const int encoderPinA = 2;  // Encoder channel A
+const int encoderPinB = 4;  // Encoder channel B
+
+// Encoder setup
+Encoder myEnc(encoderPinA, encoderPinB);
+long oldPosition = -999;  // Used to detect position changes
+const int countsPerRevolution = 400; // Adjust based on your encoder's CPR
+
+void setup() {
+  pinMode(motorPin1, OUTPUT);
+  pinMode(motorPin2, OUTPUT);
+  Serial.begin(9600);
+  lcd.begin(16, 4);  // Initialize for 16x4 LCD
+  lcd.print("Initializing...");
+  delay(1000); // Brief delay to display initializing message
+  lcd.clear();
+}
+
+void loop() {
+  // Read potentiometer value
+  int potValue = analogRead(potPin);
+
+  // Calculate motor speed and direction
+  int motorSpeed = map(abs(potValue - 512), 0, 512, 0, 255);
+  boolean motorDirection = potValue > 512;
+
+  // Apply PWM for speed and set direction
+  analogWrite(motorPin1, motorSpeed);
+  digitalWrite(motorPin2, motorDirection ? LOW : HIGH);
+
+  // Read encoder position
+  long newPosition = myEnc.read();
+  float rotations = (float)newPosition / countsPerRevolution; // Calculate rotations
+
+  // Update LCD with motor status and encoder values
+  lcd.setCursor(0, 0); // Line 1: Speed
+  lcd.print("Speed: ");
+  lcd.print(motorSpeed);
+  lcd.print("   "); // Clear trailing characters
+
+  lcd.setCursor(0, 1); // Line 2: Direction
+  lcd.print("Dir: ");
+  lcd.print(motorDirection ? "CW " : "CCW");
+  lcd.print("   "); // Clear trailing characters
+
+  lcd.setCursor(0, 2); // Line 3: Position
+  lcd.print("Pos: ");
+  lcd.print(newPosition);
+  lcd.print("   "); // Clear trailing characters
+
+  lcd.setCursor(0, 3); // Line 4: Rotations
+  lcd.print("Rot: ");
+  lcd.print(rotations, 2); // Show 2 decimal places
+  lcd.print("   "); // Clear trailing characters
+
+  // Debug output to Serial Monitor
+  Serial.print("Speed: ");
+  Serial.println(motorSpeed);
+  Serial.print("Direction: ");
+  Serial.println(motorDirection ? "CW" : "CCW");
+  Serial.print("Position: ");
+  Serial.println(newPosition);
+  Serial.print("Rotations: ");
+  Serial.println(rotations, 2);
+
+  delay(100);  // Slow down the loop for readability
+}
