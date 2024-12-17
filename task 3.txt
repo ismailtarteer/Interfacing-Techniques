@@ -1,0 +1,160 @@
+#include <Wire.h>
+#include <LiquidCrystal.h>
+#include <Encoder.h>
+#include <MPU6050.h>
+
+// LCD pin connections
+LiquidCrystal lcd(13, 12, 11, 10, 9, 8);
+
+// Motor control pins
+const int motorPin1 = 5;  // H-bridge input 1
+const int motorPin2 = 6;  // H-bridge input 2
+const int enablePin = 3;  // PWM pin to control motor speed (EN pin)
+
+// Encoder pins
+const int encoderPinA = 2;  // Encoder channel A
+const int encoderPinB = 4;  // Encoder channel B
+
+// Encoder setup
+Encoder myEnc(encoderPinA, encoderPinB);
+long oldPosition = -999;  // Used to detect position changes
+const int countsPerRevolution = 400; // Adjust based on your encoder's CPR
+
+// MPU6050 setup
+MPU6050 mpu;
+float accelX, accelY, accelZ;
+float gyroX, gyroY, gyroZ;
+
+// Variables for angle calculations
+float mpuAngleY = 0;  // Angle around Y-axis
+float motorAngle = 0; // Current angle from the encoder
+float angleDiff = 0;  // Difference between MPU and encoder angles
+
+unsigned long lastTime = 0;
+float dt = 0;
+
+void setup() {
+  pinMode(motorPin1, OUTPUT);
+  pinMode(motorPin2, OUTPUT);
+  pinMode(enablePin, OUTPUT);
+  Serial.begin(9600);
+  lcd.begin(16, 4);  // Initialize for 16x4 LCD
+
+  // Initialize MPU-6050
+  Wire.begin();
+  mpu.initialize();
+  if (mpu.testConnection()) {
+    Serial.println("MPU6050 connected successfully.");
+    lcd.print("MPU6050 Ready");
+  } else {
+    Serial.println("MPU6050 connection failed!");
+    lcd.print("MPU Error");
+    while (1); // Stop further execution if MPU initialization fails
+  }
+  delay(1000);
+  lcd.clear();
+
+  lastTime = millis();
+}
+
+void loop() {
+  // Get the raw accelerometer and gyroscope data
+  accelX = mpu.getAccelerationX();
+  accelY = mpu.getAccelerationY();
+  accelZ = mpu.getAccelerationZ();
+
+  gyroX = mpu.getRotationX();
+  gyroY = mpu.getRotationY();
+  gyroZ = mpu.getRotationZ();
+
+  // Time difference for integration
+  unsigned long currentTime = millis();
+  dt = (currentTime - lastTime) / 1000.0;
+  lastTime = currentTime;
+
+  // Avoid overly small dt
+  if (dt < 0.01) dt = 0.01;
+
+  // Calculate angles from accelerometer
+  mpuAngleY = atan2(-accelX, sqrt(accelY * accelY + accelZ * accelZ)) * 180 / PI;
+
+  // Adjust mpuAngleY to wrap from >0 to 180 and <0 to -180
+  if (mpuAngleY > 0) {
+    mpuAngleY = 180;
+  } else if (mpuAngleY < 0) {
+    mpuAngleY = -180;
+  }
+
+  // Read encoder position
+  long newPosition = myEnc.read();
+  if (abs(newPosition) > countsPerRevolution * 10) {
+    myEnc.write(0); // Reset encoder if value is unreasonable
+    newPosition = 0;
+    Serial.println("Encoder reset due to invalid position.");
+  }
+  motorAngle = (float)newPosition / countsPerRevolution * 360; // Convert to degrees
+
+  // Calculate angle difference and clamp it
+  angleDiff = mpuAngleY - motorAngle;
+  angleDiff = constrain(angleDiff, -180, 180);
+
+  // Determine motor speed and direction
+  int motorSpeed = map(abs(angleDiff), 0, 180, 0, 255); // Map angle difference to PWM speed
+  motorSpeed = constrain(motorSpeed, 0, 255); // Ensure speed is within PWM limits
+
+  // Set motor direction
+  if (angleDiff > 0) {
+    digitalWrite(motorPin1, HIGH); // Rotate forward
+    digitalWrite(motorPin2, LOW);
+  } else if (angleDiff < 0) {
+    digitalWrite(motorPin1, LOW);  // Rotate backward
+    digitalWrite(motorPin2, HIGH);
+  } else {
+    digitalWrite(motorPin1, LOW);  // Stop the motor
+    digitalWrite(motorPin2, LOW);
+  }
+
+  // Apply motor speed using PWM
+  analogWrite(enablePin, motorSpeed);
+
+  // Update LCD with motor status and angle values
+  lcd.setCursor(0, 0); // Line 1: Motor angle
+  lcd.print("Motor: ");
+  lcd.print(motorAngle, 1);
+  lcd.print("   "); // Clear trailing characters
+
+  lcd.setCursor(0, 1); // Line 2: MPU angle
+  lcd.print("MPU: ");
+  lcd.print(mpuAngleY, 1);
+  lcd.print("   "); // Clear trailing characters
+
+  lcd.setCursor(0, 2); // Line 3: Angle difference
+  lcd.print("Diff: ");
+  lcd.print(angleDiff, 1);
+  lcd.print("   "); // Clear trailing characters
+
+  lcd.setCursor(0, 3); // Line 4: Motor speed
+  lcd.print("Speed: ");
+  lcd.print(motorSpeed);
+  lcd.print("   "); // Clear trailing characters
+
+  // Debug output to Serial Monitor
+  Serial.print("Encoder Position: ");
+  Serial.println(newPosition);
+
+  Serial.print("Motor Angle: ");
+  Serial.println(motorAngle, 1);
+
+  Serial.print("MPU Angle (Y): ");
+  Serial.println(mpuAngleY, 1);
+
+  Serial.print("Angle Difference: ");
+  Serial.println(angleDiff, 1);
+
+  Serial.print("Motor Speed: ");
+  Serial.println(motorSpeed);
+
+  Serial.println("----------");
+
+  delay(50);  // Short delay for smoother updates
+}
